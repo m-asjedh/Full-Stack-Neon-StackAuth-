@@ -2,45 +2,73 @@ import { prisma } from "@/lib/prisma";
 import Sidebar from "../components/sidebar";
 import { getCurrentUser } from "@/lib/auth";
 import { TrendingUp } from "lucide-react";
+import ProductsChart from "../components/products-chart";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   const userId = user.id;
 
-  const [totalProducts, lowStockProducts, allProducts] = await Promise.all([
-    prisma.product.count({
-      where: {
-        userId,
-      },
-    }),
-    prisma.product.count({
-      where: {
-        userId,
-        lowStockAt: { not: null },
-        quantity: { lte: 5 },
-      },
-    }),
-    prisma.product.findMany({
-      where: {
-        userId,
-      },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    }),
-  ]);
-
-  const recentProducts = await prisma.product.findMany({
-    where: {
-      userId,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 5,
-  });
+  const [totalProducts, lowStockProducts, allProducts, recentProducts] =
+    await Promise.all([
+      prisma.product.count({
+        where: {
+          userId,
+        },
+      }),
+      prisma.product.count({
+        where: {
+          userId,
+          lowStockAt: { not: null },
+          quantity: { lte: 5 },
+        },
+      }),
+      prisma.product.findMany({
+        where: {
+          userId,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      }),
+      prisma.product.findMany({
+        where: {
+          userId,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      }),
+    ]);
 
   const totalValue = allProducts.reduce(
     (sum, product) => sum + Number(product.price) * Number(product.quantity),
     0
   );
+
+  const now = new Date();
+  const weeklyProductsData = [];
+
+  for (let i = 11; i >= 0; i--) {
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - i * 7);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    const weekLabel = `${String(weekStart.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}/${String(weekStart.getDate()).padStart(2, "0")}`;
+    const weekProducts = allProducts.filter((product) => {
+      const productDate = new Date(product.createdAt);
+      return productDate >= weekStart && productDate <= weekEnd;
+    });
+
+    weeklyProductsData.push({
+      week: weekLabel,
+      products: weekProducts.length,
+    });
+  }
 
   return (
     <div>
@@ -97,6 +125,16 @@ export default async function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/*INvenotry overtime */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2>New Products Per Week</h2>
+            </div>
+            <div className="h-48">
+              <ProductsChart data={weeklyProductsData} />
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -109,12 +147,40 @@ export default async function DashboardPage() {
             </div>
             <div className="space-y-4">
               {recentProducts.map((product, key) => {
+                const stockLevel =
+                  product.quantity === 0
+                    ? 0
+                    : product.quantity <= (product.lowStockAt || 5)
+                    ? 1
+                    : 2;
+                const bgColors = [
+                  "bg-red-500",
+                  "bg-yellow-500",
+                  "bg-green-500",
+                ];
+                const textColors = [
+                  "text-red-500",
+                  "text-yellow-500",
+                  "text-green-500",
+                ];
                 return (
-                  <div key={key} className="">
-                    <div className="">
-                      <span>{product.name}</span>
+                  <div
+                    key={key}
+                    className="flex items-center justify-between p-3 rounded-lg bg-gray-100"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div
+                        className={`w-3 h-3 rounded-full ${bgColors[stockLevel]}`}
+                      />
+                      <span className="text-sm font-medium">
+                        {product.name}
+                      </span>
                     </div>
-                    <div className="">{product.quantity} units</div>
+                    <div
+                      className={`text-sm font-medium ${textColors[stockLevel]}`}
+                    >
+                      {product.quantity} units
+                    </div>
                   </div>
                 );
               })}
